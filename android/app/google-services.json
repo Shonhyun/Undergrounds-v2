@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "535962277932",
+    "project_id": "undergrounds-review-center-app",
+    "storage_bucket": "undergrounds-review-center-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:535962277932:android:b55600485e5d293e2e5989",
+        "android_client_info": {
+          "package_name": "com.undergrounds.reviewcenterapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAv1Wjt-9i8CgK82GKQ3WC1YKQ39ZNX174"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
