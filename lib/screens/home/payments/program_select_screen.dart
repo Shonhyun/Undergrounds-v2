@@ -19,41 +19,58 @@ class ProgramSelectScreen extends StatefulWidget {
 }
 
 class PaymentsScreenState extends State<ProgramSelectScreen> {
-  final Map<String, int> programs =
-      Platform.isAndroid
-          ? {
-            "MATH": 2000,
-            "ESAS": 2000,
-            "EE": 2000,
-            "Refresher": 2000,
-            "Full Enrollment": 7000,
-          }
-          : {
-            "MATH": 49,
-            "ESAS": 49,
-            "EE": 49,
-            "Refresher": 49,
-            "Full Enrollment": 149,
-          };
+  // Updated programs structure with both Online Review and Mock Boards
+  final Map<String, Map<String, int>> programCategories = {
+    'Online Review Enrollment': {
+      'Math': 2499,
+      'Esas': 2499,
+      'Ee': 2499,
+      'Refresher': 2499,
+      'Full enrollment': 7999,
+    },
+    'Mock Boards Enrollment': {
+      'Math': 149,
+      'Esas': 149,
+      'Ee': 149,
+      'All mock boards': 399,
+    },
+  };
 
   final Map<String, bool> selectedPrograms = {};
 
   @override
   void initState() {
     super.initState();
-    for (var key in programs.keys) {
-      selectedPrograms[key] = false;
+    // Initialize all programs as unselected
+    for (var category in programCategories.values) {
+      for (var program in category.keys) {
+        selectedPrograms[program] = false;
+      }
     }
   }
 
   void updateSelection(String selectedProgram, bool value) {
     setState(() {
-      if (selectedProgram == "Full Enrollment") {
-        selectedPrograms.forEach((key, _) {
-          selectedPrograms[key] = (key == "Full Enrollment") ? value : false;
-        });
+      // Handle Full enrollment selection
+      if (selectedProgram == "Full enrollment") {
+        // Deselect all other Online Review programs
+        for (var program in programCategories['Online Review Enrollment']!.keys) {
+          selectedPrograms[program] = (program == "Full enrollment") ? value : false;
+        }
+      } else if (selectedProgram == "All mock boards") {
+        // Deselect individual mock board programs when "All mock boards" is selected
+        for (var program in programCategories['Mock Boards Enrollment']!.keys) {
+          selectedPrograms[program] = (program == "All mock boards") ? value : false;
+        }
       } else {
-        selectedPrograms["Full Enrollment"] = false;
+        // Handle individual program selection
+        if (programCategories['Online Review Enrollment']!.containsKey(selectedProgram)) {
+          // If selecting an individual Online Review program, deselect "Full enrollment"
+          selectedPrograms["Full enrollment"] = false;
+        } else if (programCategories['Mock Boards Enrollment']!.containsKey(selectedProgram)) {
+          // If selecting an individual Mock Board program, deselect "All mock boards"
+          selectedPrograms["All mock boards"] = false;
+        }
         selectedPrograms[selectedProgram] = value;
       }
     });
@@ -68,7 +85,13 @@ class PaymentsScreenState extends State<ProgramSelectScreen> {
     int total = 0;
     selectedPrograms.forEach((key, value) {
       if (value) {
-        total += programs[key]!;
+        // Find the price for the selected program
+        for (var category in programCategories.values) {
+          if (category.containsKey(key)) {
+            total += category[key]!;
+            break;
+          }
+        }
       }
     });
     return total;
@@ -77,15 +100,20 @@ class PaymentsScreenState extends State<ProgramSelectScreen> {
   List<Map<String, dynamic>> getSelectedProgramsWithPrices() {
     return selectedPrograms.entries
         .where((entry) => entry.value)
-        .map((entry) => {'name': entry.key, 'price': programs[entry.key]!})
+        .map((entry) {
+          // Find the price for the selected program
+          for (var category in programCategories.values) {
+            if (category.containsKey(entry.key)) {
+              return {'name': entry.key, 'price': category[entry.key]!};
+            }
+          }
+          return {'name': entry.key, 'price': 0};
+        })
         .toList();
   }
 
   @override
   Widget build(BuildContext context) {
-    bool isFullEnrollmentSelected =
-        selectedPrograms["Full Enrollment"] ?? false;
-
     final theme = Theme.of(context);
     return Scaffold(
       appBar: buildAppBar(
@@ -102,7 +130,7 @@ class PaymentsScreenState extends State<ProgramSelectScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              "Select a Program to Enroll",
+              "Select Programs to Enroll",
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 10),
@@ -110,40 +138,116 @@ class PaymentsScreenState extends State<ProgramSelectScreen> {
             // Program Selection List
             Expanded(
               child: ListView(
-                children:
-                    programs.keys.map((program) {
-                      return Card(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(15),
+                children: programCategories.entries.map((categoryEntry) {
+                  String categoryName = categoryEntry.key;
+                  Map<String, int> programs = categoryEntry.value;
+                  bool isMockBoardCategory = categoryName == 'Mock Boards Enrollment';
+                  
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Category Header
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 12.0),
+                        child: Row(
+                          children: [
+                            Text(
+                              categoryName,
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: isMockBoardCategory ? Colors.grey.shade600 : theme.primaryColor,
+                              ),
+                            ),
+                            if (isMockBoardCategory)
+                              const Padding(
+                                padding: EdgeInsets.only(left: 8.0),
+                                child: Text(
+                                  "(Coming Soon)",
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.orange,
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
-                        elevation: 2,
-                        margin: const EdgeInsets.symmetric(vertical: 6),
-                        child: CheckboxListTile(
+                      ),
+                      
+                      // Programs in this category
+                      ...programs.keys.map((program) {
+                        bool isDisabled = isMockBoardCategory; // Disable all Mock Board options
+                        
+                        return Card(
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(15),
                           ),
-                          title: Text(
-                            "$program (₱${formatPrice(programs[program]!)})",
-                            style: const TextStyle(fontSize: 16),
+                          elevation: 2,
+                          margin: const EdgeInsets.symmetric(vertical: 6),
+                          color: isDisabled ? Colors.grey.shade200 : null, // Grey out disabled options
+                          child: CheckboxListTile(
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(15),
+                            ),
+                            title: Text(
+                              "$program (₱${formatPrice(programs[program]!)})",
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: isDisabled ? Colors.grey.shade600 : null,
+                              ),
+                            ),
+                            subtitle: isDisabled 
+                              ? const Text(
+                                  "Not available yet",
+                                  style: TextStyle(
+                                    color: Colors.orange,
+                                    fontSize: 12,
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                )
+                              : null,
+                            value: selectedPrograms[program],
+                            onChanged: isDisabled ? null : (bool? value) {
+                              if (value != null) {
+                                updateSelection(program, value);
+                              }
+                            },
+                            activeColor: theme.primaryColor,
+                            checkColor: Colors.black,
+                            controlAffinity: ListTileControlAffinity.leading,
                           ),
-                          value: selectedPrograms[program],
-                          onChanged: (bool? value) {
-                            if (value != null) {
-                              updateSelection(program, value);
-                            }
-                          },
-                          activeColor: theme.primaryColor,
-                          checkColor: Colors.black,
-                          controlAffinity: ListTileControlAffinity.leading,
-                          enabled:
-                              isFullEnrollmentSelected
-                                  ? program == "Full Enrollment"
-                                  : true,
-                        ),
-                      );
-                    }).toList(),
+                        );
+                      }).toList(),
+                      
+                      // Add spacing between categories
+                      const SizedBox(height: 16),
+                    ],
+                  );
+                }).toList(),
               ),
             ),
+
+            // Mock Boards Warning (Android only)
+            if (Platform.isAndroid)
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.orange),
+                ),
+                child: const Text(
+                  "⚠️ Mock Board Exams are provided based on the review schedule, normally towards the date of the actual board exams. Please do not purchase or enroll in any Mock Board Exam item yet. Wait for the Undergrounds Admin to announce when Mock Board Exams are available.",
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.orange,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+
+            const SizedBox(height: 20),
 
             // Total Price Section
             Container(

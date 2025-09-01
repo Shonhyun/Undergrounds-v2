@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'payment_screen.dart';
@@ -29,6 +30,15 @@ class TermsAndConditionsScreenState extends State<TermsAndConditionsScreen> {
   List<String> paymentPolicies = [];
   bool isLoading = true; // To track loading state
 
+  // Android-specific payment instructions
+  final List<String> androidPaymentInstructions = [
+    "Payments made through the mobile app shall be paid to the provided GCash QR or Account.",
+    "After payment, take a screenshot of your proof of payment (GCash transaction or App Store receipt).",
+    "Proceed to the enrollment using the Google Form posted by Engr. Clibourn Quiapo.",
+    "Fill out the form and upload your payment screenshot for validation.",
+    "Wait for Engr. Clibourn Quiapo to review and activate your account.",
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -50,10 +60,22 @@ class TermsAndConditionsScreenState extends State<TermsAndConditionsScreen> {
           paymentPolicies = List<String>.from(doc['payment_policies'] ?? []);
           isLoading = false;
         });
+      } else {
+        // If no Firebase data, use default Android instructions for Android
+        setState(() {
+          if (Platform.isAndroid) {
+            paymentPolicies = androidPaymentInstructions;
+          }
+          isLoading = false;
+        });
       }
     } catch (e) {
       print("Error fetching policies: $e");
       setState(() {
+        // Fallback to Android instructions for Android devices
+        if (Platform.isAndroid) {
+          paymentPolicies = androidPaymentInstructions;
+        }
         isLoading = false;
       });
     }

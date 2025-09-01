@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:learningexamapp/screens/main_screen.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class PaymentScreen extends StatelessWidget {
   final VoidCallback onBack;
@@ -19,13 +20,14 @@ class PaymentScreen extends StatelessWidget {
     this.userData, // Add userData parameter
   });
 
-  // Define your product IDs for various subjects/packages
+  // Updated product IDs to match the new program structure
   static const Map<String, String> productIds = {
-    'MATH': 'math',
-    'ESAS': 'esas',
-    'EE': 'ee',
-    'REFRESHER': 'refresher',
-    'FULL ENROLLMENT': 'full_enrollment',
+    'Math': 'math',
+    'Esas': 'esas',
+    'Ee': 'ee',
+    'Refresher': 'refresher',
+    'Full enrollment': 'full_enrollment',
+    'All mock boards': 'all_mock_boards',
   };
 
   Future<void> _initiateApplePay(BuildContext context, String productId) async {
@@ -71,78 +73,176 @@ class PaymentScreen extends StatelessWidget {
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text('Payment Confirmation'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Student Details Section
-              const Text(
-                'Student Details:',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-              ),
-              const SizedBox(height: 8),
-              Text('Name: ${userData?['fullName'] ?? 'N/A'}'),
-              Text('Email: ${userData?['email'] ?? 'N/A'}'),
-              const SizedBox(height: 16),
-              
-              // Selected Programs Section
-              const Text(
-                'Selected Programs:',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-              ),
-              const SizedBox(height: 8),
-              ...selectedPrograms.map((program) => Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(program['name']),
-                    Text('₱${program['price'].toStringAsFixed(2)}'),
-                  ],
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Student Details Section
+                const Text(
+                  'Student Details:',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                 ),
-              )),
-              const SizedBox(height: 16),
-              
-              // Total Amount
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.green.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.green),
+                const SizedBox(height: 8),
+                Text('Name: ${userData?['fullName'] ?? 'N/A'}'),
+                Text('Email: ${userData?['email'] ?? 'N/A'}'),
+                const SizedBox(height: 16),
+                
+                // Selected Programs Section
+                const Text(
+                  'Selected Programs:',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Total Amount:',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                    ),
-                    Text(
-                      '₱${getTotalPrice().toStringAsFixed(2)}',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 18,
-                        color: Colors.green,
+                const SizedBox(height: 8),
+                ...selectedPrograms.map((program) => Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(program['name']),
+                      Text('₱${program['price'].toStringAsFixed(2)}'),
+                    ],
+                  ),
+                )),
+                const SizedBox(height: 16),
+                
+                // Total Amount
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.green.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.green),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Total Amount:',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                       ),
-                    ),
-                  ],
+                      Text(
+                        '₱${getTotalPrice().toStringAsFixed(2)}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18,
+                          color: Colors.green,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              
-              // Confirmation Message
-              const Text(
-                'Please confirm that you have completed your payment process. This action cannot be undone.',
-                style: TextStyle(fontSize: 14, color: Colors.grey),
-              ),
-            ],
+                const SizedBox(height: 16),
+                
+                // Enrollment Instructions Section
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.blue),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '📋 Next Steps for Enrollment:',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold, 
+                          fontSize: 16,
+                          color: Colors.blue,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      
+                      // Step 1: Screenshot
+                      const Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('1. ', style: TextStyle(fontWeight: FontWeight.bold)),
+                          Expanded(
+                            child: Text(
+                              'Take a screenshot of your proof of payment (GCash transaction or App Store receipt)',
+                              style: TextStyle(fontSize: 14),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      
+                      // Step 2: Google Form
+                      const Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('2. ', style: TextStyle(fontWeight: FontWeight.bold)),
+                          Expanded(
+                            child: Text(
+                              'Click the "Enrollment Form" button below to access the Google Form',
+                              style: TextStyle(fontSize: 14),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      
+                      // Step 3: Submit
+                      const Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('3. ', style: TextStyle(fontWeight: FontWeight.bold)),
+                          Expanded(
+                            child: Text(
+                              'Fill out the form and upload your payment screenshot for validation',
+                              style: TextStyle(fontSize: 14),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      
+                      // Step 4: Wait
+                      const Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('4. ', style: TextStyle(fontWeight: FontWeight.bold)),
+                          Expanded(
+                            child: Text(
+                              'Wait for Engr. Clibourn Quiapo to review and activate your account',
+                              style: TextStyle(fontSize: 14),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                
+                // Confirmation Message
+                const Text(
+                  'Please confirm that you have completed your payment process. This action cannot be undone.',
+                  style: TextStyle(fontSize: 14, color: Colors.grey),
+                ),
+              ],
+            ),
           ),
           actions: <Widget>[
             TextButton(
               child: const Text('Cancel'),
               onPressed: () {
                 Navigator.of(context).pop();
+              },
+            ),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.description, size: 18),
+              label: const Text('Enrollment Form'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () {
+                Navigator.of(context).pop();
+                _openEnrollmentForm(context);
               },
             ),
             ElevatedButton(
@@ -171,7 +271,7 @@ class PaymentScreen extends StatelessWidget {
                               ),
                               const SizedBox(height: 4),
                               const Text(
-                                'Your payment is now under admin approval. You will receive access to materials once approved.',
+                                'Please complete the enrollment form to activate your account.',
                                 style: TextStyle(fontSize: 14),
                               ),
                             ],
@@ -186,6 +286,11 @@ class PaymentScreen extends StatelessWidget {
                       borderRadius: BorderRadius.circular(10),
                     ),
                     margin: const EdgeInsets.all(16),
+                    action: SnackBarAction(
+                      label: 'Open Form',
+                      textColor: Colors.white,
+                      onPressed: () => _openEnrollmentForm(context),
+                    ),
                   ),
                 );
                 
@@ -194,6 +299,63 @@ class PaymentScreen extends StatelessWidget {
                   context,
                   MaterialPageRoute(builder: (context) => MainScreen()),
                 );
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _openEnrollmentForm(BuildContext context) async {
+    // Replace this URL with the actual Google Form URL provided by Engr. Clibourn Quiapo
+    const String enrollmentFormUrl = 'https://forms.google.com/your-enrollment-form-url';
+    
+    try {
+      // Try to open the enrollment form URL
+      final Uri url = Uri.parse(enrollmentFormUrl);
+      if (await canLaunchUrl(url)) {
+        await launchUrl(url, mode: LaunchMode.externalApplication);
+      } else {
+        // If URL can't be launched, show contact information
+        _showContactInfoDialog(context);
+      }
+    } catch (e) {
+      // If there's an error, show contact information
+      _showContactInfoDialog(context);
+    }
+  }
+
+  void _showContactInfoDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Enrollment Form'),
+          content: const Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Please contact Engr. Clibourn Quiapo to get the enrollment form link.',
+                style: TextStyle(fontSize: 16),
+              ),
+              SizedBox(height: 12),
+              Text(
+                'Contact Information:',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+              SizedBox(height: 8),
+              Text('• Email: [Email address]'),
+              Text('• Phone: [Phone number]'),
+              Text('• Facebook: [Facebook page]'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              child: const Text('OK'),
+              onPressed: () {
+                Navigator.of(context).pop();
               },
             ),
           ],
