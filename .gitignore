@@ -125,3 +125,4 @@ app.*.symbols
 .metadata
 
 lib/firebase_options.dart
+.vscode/templates

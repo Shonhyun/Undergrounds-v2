@@ -29,7 +29,7 @@ class ExamListScreenState extends State<ExamListScreen> {
     _fetchExams();
   }
 
-  void _fetchExams() async {
+  Future<void> _fetchExams() async {
     setState(() {
       _isLoading = true;
     });
@@ -46,7 +46,7 @@ class ExamListScreenState extends State<ExamListScreen> {
       final List<Map<String, dynamic>> fetchedExams = [];
       for (var doc in examSnapshot.docs) {
         // Get the document data as a Map.
-        final examData = doc.data() as Map<String, dynamic>;
+        final examData = doc.data();
 
         // Safely retrieve isFree, defaulting to true if the field is missing.
         // The `??` operator works safely here because `examData['isFree']`
@@ -173,27 +173,46 @@ class ExamListScreenState extends State<ExamListScreen> {
                           // Disable the onTap functionality if the user can't access the exam.
                           canAccess
                               ? () {
+                                // Navigate to the exam screen
                                 Navigator.push(
                                   context,
                                   MaterialPageRoute(
-                                    builder:
-                                        (context) => ExamScreen(
-                                          courseName: widget.courseName,
-                                          subject: widget.courseName,
-                                          examId: exams[index]['examId'],
-                                          examTitle: exams[index]['examTitle'],
-                                          examDescription:
-                                              exams[index]['examDescription'],
-                                          timeLimit: exams[index]['timeLimit'],
-                                          userData: widget.userData,
-                                          onBack: () {
-                                            Navigator.pop(context);
-                                          },
-                                        ),
+                                    builder: (context) => ExamScreen(
+                                      courseName: widget.courseName,
+                                      subject: widget.courseName,
+                                      examId: exams[index]['examId'],
+                                      examTitle: exams[index]['examTitle'],
+                                      examDescription: exams[index]['examDescription'],
+                                      timeLimit: exams[index]['timeLimit'],
+                                      userData: widget.userData,
+                                      onBack: () {
+                                        Navigator.pop(context);
+                                      },
+                                    ),
                                   ),
                                 );
                               }
-                              : null,
+                              : () {
+                                // Show snackbar explaining why the exam is locked
+                                String reason = isFree 
+                                    ? 'This exam is not available yet.'
+                                    : 'You need to enroll in this course to access this exam.';
+                                
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(reason),
+                                    backgroundColor: Colors.orange,
+                                    duration: Duration(seconds: 3),
+                                    action: SnackBarAction(
+                                      label: 'OK',
+                                      textColor: Colors.white,
+                                      onPressed: () {
+                                        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                                      },
+                                    ),
+                                  ),
+                                );
+                              },
                     ),
                   );
                 },

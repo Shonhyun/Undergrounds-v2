@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 // Define the Announcement class to hold announcement data
 class Announcement {
@@ -10,6 +12,81 @@ class Announcement {
   imageUrl; // Nullable as not all announcements will have an image
 
   Announcement({required this.text, this.imageUrl});
+}
+
+// Helper function to detect URLs and make them clickable
+Widget _buildClickableText(String text) {
+  // Regular expression to detect URLs
+  final urlRegex = RegExp(
+    r'(https?://[^\s]+)|(www\.[^\s]+)',
+    caseSensitive: false,
+  );
+  
+  if (!urlRegex.hasMatch(text)) {
+    // No URLs found, return plain text
+    return Text(
+      text,
+      textAlign: TextAlign.center,
+      style: const TextStyle(fontSize: 18),
+    );
+  }
+
+  // Split text by URLs and build clickable widgets
+  final parts = text.split(urlRegex);
+  final matches = urlRegex.allMatches(text);
+  
+  List<InlineSpan> spans = [];
+  int matchIndex = 0;
+  
+  for (int i = 0; i < parts.length; i++) {
+    // Add the text part
+    if (parts[i].isNotEmpty) {
+      spans.add(TextSpan(
+        text: parts[i],
+        style: const TextStyle(fontSize: 18),
+      ));
+    }
+    
+    // Add the URL part if available
+    if (matchIndex < matches.length) {
+      final match = matches.elementAt(matchIndex);
+      final url = match.group(0)!;
+      
+      // Ensure URL has proper scheme
+      String fullUrl = url;
+      if (url.startsWith('www.')) {
+        fullUrl = 'https://$url';
+      }
+      
+      spans.add(TextSpan(
+        text: url,
+        style: const TextStyle(
+          fontSize: 18,
+          color: Colors.blue,
+          decoration: TextDecoration.underline,
+          decorationColor: Colors.blue,
+        ),
+        recognizer: TapGestureRecognizer()
+          ..onTap = () async {
+            try {
+              final uri = Uri.parse(fullUrl);
+              if (await canLaunchUrl(uri)) {
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              }
+            } catch (e) {
+              // Handle URL launch errors silently
+              debugPrint('Failed to launch URL: $e');
+            }
+          },
+      ));
+      matchIndex++;
+    }
+  }
+  
+  return RichText(
+    textAlign: TextAlign.center,
+    text: TextSpan(children: spans),
+  );
 }
 
 class AnnouncementOverlay extends StatefulWidget {
@@ -44,22 +121,46 @@ class AnnouncementOverlayState extends State<AnnouncementOverlay> {
     try {
       final querySnapshot =
           await FirebaseFirestore.instance.collection('announcements').get();
+      
+      // Create a list of announcements with position data
+      final announcementsWithPosition = querySnapshot.docs.map((doc) {
+        final data = doc.data(); // Get the map of data from the document
+        final text = data['text'] as String? ?? '';
+        final imageUrl = data['image_url'] as String?;
+        final position = data['position'] as int? ?? 0; // Get position, default to 0
+        
+        // Debug: Print announcement data
+        debugPrint('Announcement text: $text');
+        debugPrint('Announcement imageUrl: $imageUrl');
+        debugPrint('Announcement position: $position');
+        debugPrint('Contains URL: ${text.contains('http') || text.contains('www')}');
+        
+        return {
+          'announcement': Announcement(
+            text: text,
+            imageUrl: imageUrl,
+          ),
+          'position': position,
+          'documentId': doc.id,
+        };
+      }).toList();
+      
+      // Sort announcements by position (Slide 1 first, Slide 2 second, etc.)
+      announcementsWithPosition.sort((a, b) {
+        final aPos = a['position'] as int? ?? 0;
+        final bPos = b['position'] as int? ?? 0;
+        return aPos.compareTo(bPos);
+      });
+      
       setState(() {
-        // Map Firestore documents to Announcement objects
-        announcements =
-            querySnapshot.docs.map((doc) {
-              final data = doc.data(); // Get the map of data from the document
-              return Announcement(
-                text:
-                    data['text'] as String? ??
-                    '', // Safely get 'text' field, default to empty string
-                imageUrl:
-                    data['image_url']
-                        as String?, // Safely get 'image_url' field
-              );
-            }).toList();
+        // Extract just the Announcement objects in the correct order
+        announcements = announcementsWithPosition
+            .map((item) => item['announcement'] as Announcement)
+            .toList();
         isLoading = false; // Set loading to false once data is fetched
       });
+      
+      debugPrint('Announcements loaded in order: ${announcementsWithPosition.map((item) => 'Position ${item['position']}: ${item['documentId']}').join(', ')}');
     } catch (e) {
       // Handle errors during fetching, e.g., show a SnackBar
       if (mounted) {
@@ -235,13 +336,9 @@ class AnnouncementOverlayState extends State<AnnouncementOverlay> {
                                                     BoxFit
                                                         .contain, // How the image should fit within its bounds
                                               )
-                                              : Text(
+                                              : _buildClickableText(
                                                 // Fallback to text if no image URL
                                                 announcement.text,
-                                                textAlign: TextAlign.center,
-                                                style: const TextStyle(
-                                                  fontSize: 18,
-                                                ),
                                               ),
                                     ),
                                   );

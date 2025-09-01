@@ -9,12 +9,14 @@ class PaymentScreen extends StatelessWidget {
   final List<Map<String, dynamic>>
   selectedPrograms; // Updated to accept a list of maps
   final bool isTesting;
+  final Map<String, dynamic>? userData; // Add userData parameter
 
   const PaymentScreen({
     super.key,
     required this.onBack,
     required this.selectedPrograms,
     this.isTesting = false,
+    this.userData, // Add userData parameter
   });
 
   // Define your product IDs for various subjects/packages
@@ -60,6 +62,143 @@ class PaymentScreen extends StatelessWidget {
     return selectedPrograms.fold(
       0.0,
       (total, program) => total + program['price'],
+    );
+  }
+
+  void _showPaymentConfirmationDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Payment Confirmation'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Student Details Section
+              const Text(
+                'Student Details:',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              const SizedBox(height: 8),
+              Text('Name: ${userData?['fullName'] ?? 'N/A'}'),
+              Text('Email: ${userData?['email'] ?? 'N/A'}'),
+              const SizedBox(height: 16),
+              
+              // Selected Programs Section
+              const Text(
+                'Selected Programs:',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              const SizedBox(height: 8),
+              ...selectedPrograms.map((program) => Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(program['name']),
+                    Text('₱${program['price'].toStringAsFixed(2)}'),
+                  ],
+                ),
+              )),
+              const SizedBox(height: 16),
+              
+              // Total Amount
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.green.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.green),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Total Amount:',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                    Text(
+                      '₱${getTotalPrice().toStringAsFixed(2)}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                        color: Colors.green,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              
+              // Confirmation Message
+              const Text(
+                'Please confirm that you have completed your payment process. This action cannot be undone.',
+                style: TextStyle(fontSize: 14, color: Colors.grey),
+              ),
+            ],
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Cancel'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+            ElevatedButton(
+              child: const Text('Confirm Payment'),
+              onPressed: () {
+                Navigator.of(context).pop();
+                
+                // Show snackbar message about admin approval
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Row(
+                      children: [
+                        const Icon(Icons.info_outline, color: Colors.white),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Payment Submitted Successfully!',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              const Text(
+                                'Your payment is now under admin approval. You will receive access to materials once approved.',
+                                style: TextStyle(fontSize: 14),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    backgroundColor: Colors.green,
+                    duration: const Duration(seconds: 5),
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    margin: const EdgeInsets.all(16),
+                  ),
+                );
+                
+                // Navigate to MainScreen after showing the message
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (context) => MainScreen()),
+                );
+              },
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -307,10 +446,7 @@ class PaymentScreen extends StatelessWidget {
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: () {
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(builder: (context) => MainScreen()),
-                  );
+                  _showPaymentConfirmationDialog(context);
                 },
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 15),

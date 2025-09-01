@@ -108,7 +108,7 @@ class _HomePageState extends State<HomePage> {
               onBack: _goBack,
             ),
             ExamScoresScreen(onBack: _goBack, userData: widget.userData),
-            ProgramSelectScreen(onBack: _goBack),
+            ProgramSelectScreen(onBack: _goBack, userData: widget.userData),
             LibraryHomeScreen(
               userData: widget.userData,
               onBack: _goBack,

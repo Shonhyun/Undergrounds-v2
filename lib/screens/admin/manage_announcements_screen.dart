@@ -1,9 +1,501 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+// Helper function to detect URLs and make them clickable
+Widget _buildClickableText(String text, TextStyle? style) {
+  // Regular expression to detect URLs
+  final urlRegex = RegExp(
+    r'(https?://[^\s]+)|(www\.[^\s]+)',
+    caseSensitive: false,
+  );
+  
+  if (!urlRegex.hasMatch(text)) {
+    // No URLs found, return plain text with better styling
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Text(
+      text,
+        style: style?.copyWith(
+          fontSize: 16,
+          height: 1.5,
+          color: Colors.grey.shade800,
+        ) ?? TextStyle(
+          fontSize: 16,
+          height: 1.5,
+          color: Colors.grey.shade800,
+        ),
+        textAlign: TextAlign.left,
+        maxLines: null,
+        softWrap: true,
+      ),
+    );
+  }
+
+  // Find all matches with their positions
+  final matches = urlRegex.allMatches(text);
+  List<InlineSpan> spans = [];
+  int lastIndex = 0;
+  
+  for (final match in matches) {
+    // Add text before the URL
+    if (match.start > lastIndex) {
+      final beforeText = text.substring(lastIndex, match.start);
+      if (beforeText.isNotEmpty) {
+        spans.add(TextSpan(
+          text: beforeText,
+          style: style?.copyWith(
+            fontSize: 16,
+            height: 1.5,
+            color: Colors.grey.shade800,
+          ) ?? TextStyle(
+            fontSize: 16,
+            height: 1.5,
+            color: Colors.grey.shade800,
+          ),
+        ));
+      }
+    }
+    
+    // Add the clickable URL
+    final url = match.group(0)!;
+    String fullUrl = url;
+    if (url.startsWith('www.')) {
+      fullUrl = 'https://$url';
+    }
+    
+    spans.add(TextSpan(
+      text: url,
+      style: style?.copyWith(
+        fontSize: 16,
+        height: 1.5,
+        color: Colors.blue.shade700,
+        decoration: TextDecoration.underline,
+        decorationColor: Colors.blue.shade700,
+        fontWeight: FontWeight.w500,
+      ) ?? TextStyle(
+        fontSize: 16,
+        height: 1.5,
+        color: Colors.blue.shade700,
+        decoration: TextDecoration.underline,
+        decorationColor: Colors.blue.shade700,
+        fontWeight: FontWeight.w500,
+      ),
+      recognizer: TapGestureRecognizer()
+        ..onTap = () async {
+          try {
+            final uri = Uri.parse(fullUrl);
+            if (await canLaunchUrl(uri)) {
+              await launchUrl(uri, mode: LaunchMode.externalApplication);
+            }
+          } catch (e) {
+            // Handle URL launch errors silently
+            debugPrint('Failed to launch URL: $e');
+          }
+        },
+    ));
+    
+    lastIndex = match.end;
+  }
+  
+  // Add remaining text after the last URL
+  if (lastIndex < text.length) {
+    final afterText = text.substring(lastIndex);
+    if (afterText.isNotEmpty) {
+      spans.add(TextSpan(
+        text: afterText,
+        style: style?.copyWith(
+          fontSize: 16,
+          height: 1.5,
+          color: Colors.grey.shade800,
+        ) ?? TextStyle(
+          fontSize: 16,
+          height: 1.5,
+          color: Colors.grey.shade800,
+        ),
+      ));
+    }
+  }
+  
+  return Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: Colors.grey.shade50,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: Colors.grey.shade300),
+    ),
+    child: RichText(
+      text: TextSpan(children: spans),
+      textAlign: TextAlign.left,
+      softWrap: true,
+    ),
+  );
+}
+
+// Modal widget for adding new slides
+class AddSlideModal extends StatefulWidget {
+  final Function(String? text, String? imageUrl) onSlideAdded;
+
+  const AddSlideModal({
+    super.key,
+    required this.onSlideAdded,
+  });
+
+  @override
+  AddSlideModalState createState() => AddSlideModalState();
+}
+
+class AddSlideModalState extends State<AddSlideModal> {
+  final TextEditingController _textController = TextEditingController();
+  File? _selectedImage;
+  final ImagePicker _picker = ImagePicker();
+  double _uploadProgress = 0.0;
+  bool _isUploading = false;
+  bool _hasContent = false;
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    super.dispose();
+  }
+
+  void _checkContent() {
+    setState(() {
+      _hasContent = _textController.text.trim().isNotEmpty || _selectedImage != null;
+    });
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final XFile? image = await _picker.pickImage(
+        source: source,
+        maxWidth: 1920,
+        maxHeight: 1080,
+        imageQuality: 85,
+      );
+      
+      if (image != null) {
+        setState(() {
+          _selectedImage = File(image.path);
+          _checkContent();
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to pick image: $e')),
+        );
+      }
+    }
+  }
+
+  Future<String?> _uploadImage() async {
+    if (_selectedImage == null) return null;
+    
+    setState(() {
+      _isUploading = true;
+      _uploadProgress = 0.0;
+    });
+
+    try {
+      final String fileName = 'announcement_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(1000)}.jpg';
+      final Reference storageRef = FirebaseStorage.instance.ref().child('announcements/$fileName');
+      
+      final UploadTask uploadTask = storageRef.putFile(_selectedImage!);
+      
+      uploadTask.snapshotEvents.listen((TaskSnapshot snapshot) {
+        setState(() {
+          _uploadProgress = snapshot.bytesTransferred / snapshot.totalBytes;
+        });
+      });
+      
+      final TaskSnapshot taskSnapshot = await uploadTask;
+      final String downloadUrl = await taskSnapshot.ref.getDownloadURL();
+      
+      return downloadUrl;
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to upload image: $e')),
+        );
+      }
+      return null;
+    } finally {
+      setState(() {
+        _isUploading = false;
+        _uploadProgress = 0.0;
+      });
+    }
+  }
+
+  Future<void> _addSlide() async {
+    if (!_hasContent) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please add some content to the slide')),
+      );
+      return;
+    }
+
+    String? imageUrl;
+    if (_selectedImage != null) {
+      imageUrl = await _uploadImage();
+      if (imageUrl == null) return; // Upload failed
+    }
+
+    final String? text = _textController.text.trim().isEmpty ? null : _textController.text.trim();
+    
+    widget.onSlideAdded(text, imageUrl);
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    
+    return Dialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Container(
+        width: MediaQuery.of(context).size.width * 0.9,
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.8,
+        ),
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Add New Slide',
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                IconButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close),
+                  style: IconButton.styleFrom(
+                    backgroundColor: Colors.grey[200],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            
+            // Content Type Selection
+            Text(
+              'Choose content type:',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 16),
+            
+            // Text Input Section
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Text Content',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _textController,
+                  onChanged: (_) => _checkContent(),
+                  maxLines: 4,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'Enter announcement text...',
+                    hintStyle: TextStyle(
+                      color: Colors.grey.shade400,
+                      fontSize: 16,
+                    ),
+                    hintMaxLines: 2,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: Colors.grey.shade600),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: Colors.grey.shade600),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: Colors.blue.shade400, width: 2),
+                    ),
+                    filled: true,
+                    fillColor: Colors.grey[800],
+                  ),
+                ),
+              ],
+            ),
+            
+            const SizedBox(height: 20),
+            
+            // Image Selection Section
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Image Content',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                
+                if (_selectedImage != null) ...[
+                  Container(
+                    height: 120,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey[300]!),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.file(
+                        _selectedImage!,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _isUploading ? null : () => _pickImage(ImageSource.gallery),
+                          icon: const Icon(Icons.photo_library),
+                          label: const Text('Change Image'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _isUploading ? null : () {
+                            setState(() {
+                              _selectedImage = null;
+                              _checkContent();
+                            });
+                          },
+                          icon: const Icon(Icons.delete),
+                          label: const Text('Remove'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red,
+                            side: const BorderSide(color: Colors.red),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ] else ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _isUploading ? null : () => _pickImage(ImageSource.gallery),
+                          icon: const Icon(Icons.photo_library),
+                          label: const Text('Gallery'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _isUploading ? null : () => _pickImage(ImageSource.camera),
+                          icon: const Icon(Icons.camera_alt),
+                          label: const Text('Camera'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+            
+            if (_isUploading) ...[
+              const SizedBox(height: 20),
+              Column(
+                children: [
+                  LinearProgressIndicator(value: _uploadProgress),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Uploading: ${(_uploadProgress * 100).toStringAsFixed(0)}%',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ],
+              ),
+            ],
+            
+            const SizedBox(height: 32),
+            
+            // Action Buttons
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text('Cancel'),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: _hasContent && !_isUploading ? _addSlide : null,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: theme.primaryColor,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: _isUploading
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Add Slide'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class ManageAnnouncementsPage extends StatefulWidget {
   const ManageAnnouncementsPage({super.key});
@@ -22,20 +514,298 @@ class ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
   final Map<String, File?> _selectedImages = {};
   final Map<String, double> _uploadProgress = {};
   final Map<String, bool> _isSaving = {};
+  bool _positionsFixed = false; // Track if positions have been fixed
 
-  // Function to add a new slide
-  void _addSlide() async {
+  @override
+  void initState() {
+    super.initState();
+    _migrateExistingSlides(); // Migrate existing slides to have position field
+    // Also ensure positions are set up after a short delay
+    Future.delayed(const Duration(milliseconds: 500), () async {
+      if (mounted) {
+        await _checkIfPositionsAreFixed();
+        _ensureAllSlidesHavePositions([]);
+      }
+    });
+  }
+
+  // Migrate existing slides to have position field
+  Future<void> _migrateExistingSlides() async {
     try {
-      await _firestore.collection('announcements').add({
-        'text': '',
-        'image_url': null,
-        'created_at': FieldValue.serverTimestamp(),
+      debugPrint('Starting migration of existing slides...');
+      
+      // Get all slides without position field
+      final slidesWithoutPosition = await _firestore
+          .collection('announcements')
+          .where('position', isNull: true)
+          .get();
+      
+      debugPrint('Found ${slidesWithoutPosition.docs.length} slides without position field');
+      
+      if (slidesWithoutPosition.docs.isNotEmpty) {
+        // Get the current highest position to continue from there
+        final existingSlides = await _firestore
+            .collection('announcements')
+            .where('position', isNull: false)
+            .orderBy('position', descending: true)
+            .limit(1)
+            .get();
+        
+        int startPosition = 0;
+        if (existingSlides.docs.isNotEmpty) {
+          startPosition = (existingSlides.docs.first.data()['position'] as int? ?? 0) + 1;
+        }
+        
+        debugPrint('Starting position assignment from $startPosition');
+        
+        final batch = _firestore.batch();
+        for (int i = 0; i < slidesWithoutPosition.docs.length; i++) {
+          batch.update(slidesWithoutPosition.docs[i].reference, {'position': startPosition + i});
+        }
+        await batch.commit();
+        
+        debugPrint('Successfully migrated ${slidesWithoutPosition.docs.length} slides with positions starting from $startPosition');
+      } else {
+        debugPrint('All slides already have position fields');
+      }
+      
+      // Also check if any slides have invalid position values and fix them
+      await _fixInvalidPositions();
+      
+      // Set flag that positions are fixed
+      setState(() {
+        _positionsFixed = true;
       });
+      
+    } catch (e) {
+      debugPrint('Migration error: $e');
+    }
+  }
+
+  // Function to add a new slide with modal
+  void _addSlide() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AddSlideModal(
+                onSlideAdded: (String? text, String? imageUrl) async {
+        try {
+          // Get the current highest position
+          final currentSlides = await _firestore
+              .collection('announcements')
+              .orderBy('position', descending: true)
+              .limit(1)
+              .get();
+          
+          int newPosition = 0;
+          if (currentSlides.docs.isNotEmpty) {
+            final highestPosition = currentSlides.docs.first.data()['position'] as int? ?? 0;
+            newPosition = highestPosition + 1;
+          }
+          
+      await _firestore.collection('announcements').add({
+            'text': text ?? '',
+            'image_url': imageUrl,
+        'created_at': FieldValue.serverTimestamp(),
+            'position': newPosition,
+          });
+              
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Slide added successfully!')),
+                );
+              }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to add slide: $e')));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Failed to add slide: $e')),
+                );
+              }
+            }
+          },
+        );
+      },
+    );
+  }
+
+  // Function to fix invalid position values
+  Future<void> _fixInvalidPositions() async {
+    try {
+      debugPrint('Checking for invalid position values...');
+      
+      // Get all slides and check for invalid positions
+      final allSlides = await _firestore
+          .collection('announcements')
+          .get();
+      
+      final slidesWithInvalidPositions = allSlides.docs.where((doc) {
+        final data = doc.data();
+        final position = data['position'];
+        return position == null || position < 0;
+      }).toList();
+      
+      if (slidesWithInvalidPositions.isNotEmpty) {
+        debugPrint('Found ${slidesWithInvalidPositions.length} slides with invalid positions');
+        
+        // Assign new sequential positions starting from 0
+        final batch = _firestore.batch();
+        for (int i = 0; i < slidesWithInvalidPositions.length; i++) {
+          batch.update(slidesWithInvalidPositions[i].reference, {'position': i});
+        }
+        await batch.commit();
+        
+        debugPrint('Fixed positions for ${slidesWithInvalidPositions.length} slides');
+      } else {
+        debugPrint('All slides have valid position values');
+      }
+      
+      // Set flag that positions are fixed
+      setState(() {
+        _positionsFixed = true;
+      });
+    } catch (e) {
+      debugPrint('Error fixing invalid positions: $e');
+    }
+  }
+
+  // Function to check if all slides already have position fields
+  Future<void> _checkIfPositionsAreFixed() async {
+    try {
+      final slides = await _firestore
+          .collection('announcements')
+          .get();
+      
+      if (slides.docs.isNotEmpty) {
+        final allHavePositions = slides.docs.every((doc) {
+          final data = doc.data();
+          final position = data['position'];
+          return position != null && position is int && position >= 0;
+        });
+        
+        if (allHavePositions) {
+          setState(() {
+            _positionsFixed = true;
+          });
+          debugPrint('All slides already have valid position fields');
+        } else {
+          debugPrint('Some slides are missing position fields');
+        }
+      }
+    } catch (e) {
+      debugPrint('Error checking position status: $e');
+    }
+  }
+
+  // Function to ensure all slides have positions
+  void _ensureAllSlidesHavePositions(List<QueryDocumentSnapshot> slides) {
+    // Check if any slides are missing positions
+    final slidesWithoutPosition = slides.where((slide) {
+      final data = slide.data() as Map<String, dynamic>?;
+      return data != null && data['position'] == null;
+    }).toList();
+    
+    if (slidesWithoutPosition.isNotEmpty) {
+      // Run migration in background
+      _migrateExistingSlides();
+    }
+  }
+
+  // Function to reorder slides
+  Future<void> _reorderSlides(int oldIndex, int newIndex) async {
+    try {
+      debugPrint('Starting reorder: oldIndex=$oldIndex, newIndex=$newIndex');
+      
+      // First, try to get slides ordered by position
+      QuerySnapshot slides;
+      try {
+        slides = await _firestore
+            .collection('announcements')
+            .orderBy('position', descending: false)
+            .get();
+        debugPrint('Found ${slides.docs.length} slides ordered by position');
+      } catch (e) {
+        debugPrint('Failed to order by position, trying without order: $e');
+        // Fallback: get slides without ordering if position field is missing
+        slides = await _firestore
+            .collection('announcements')
+            .get();
+        debugPrint('Found ${slides.docs.length} slides without ordering');
+      }
+      
+      if (slides.docs.isEmpty) {
+        debugPrint('No slides found for reordering');
+        return;
+      }
+      
+      // Adjust newIndex for ReorderableListView behavior
+      if (oldIndex < newIndex) {
+        newIndex -= 1;
+      }
+      
+      // Ensure indices are within bounds
+      if (oldIndex < 0 || oldIndex >= slides.docs.length || 
+          newIndex < 0 || newIndex >= slides.docs.length) {
+        debugPrint('Invalid indices: oldIndex=$oldIndex, newIndex=$newIndex, totalSlides=${slides.docs.length}');
+        return;
+      }
+      
+      final movedSlide = slides.docs[oldIndex];
+      final movedId = movedSlide.id;
+      
+      debugPrint('Moving slide from position $oldIndex to $newIndex (ID: $movedId)');
+      
+      // Create a new list with updated positions
+      final List<Map<String, dynamic>> updatedPositions = [];
+      
+      // Calculate new positions for all slides
+      for (int i = 0; i < slides.docs.length; i++) {
+        final slide = slides.docs[i];
+        int newPosition;
+        
+        if (i == oldIndex) {
+          // This is the moved slide
+          newPosition = newIndex;
+        } else if (i < oldIndex && i >= newIndex) {
+          // Slides that need to move up (increase position)
+          newPosition = i + 1;
+        } else if (i > oldIndex && i <= newIndex) {
+          // Slides that need to move down (decrease position)
+          newPosition = i - 1;
+        } else {
+          // Slides that don't change position
+          newPosition = i;
+        }
+        
+        updatedPositions.add({
+          'id': slide.id,
+          'position': newPosition,
+        });
+      }
+      
+      // Update all slides with new positions
+      final batch = _firestore.batch();
+      for (final update in updatedPositions) {
+        batch.update(
+          _firestore.collection('announcements').doc(update['id']),
+          {'position': update['position']}
+        );
+      }
+      
+      await batch.commit();
+      
+      debugPrint('Successfully reordered slides. New positions: ${updatedPositions.map((e) => '${e['id']}:${e['position']}').join(', ')}');
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Slides reordered successfully!')),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error reordering slides: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to reorder slides: $e')),
+        );
       }
     }
   }
@@ -376,15 +1146,42 @@ class ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Instructions for drag and drop
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.info_outline,
+                    color: Colors.blue.shade700,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      '💡 Drag and drop slides to reorder them. The order will be saved automatically.',
+                      style: TextStyle(
+                        color: Colors.blue.shade700,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
             Expanded(
               child: StreamBuilder<QuerySnapshot>(
                 stream:
                     _firestore
                         .collection('announcements')
-                        .orderBy(
-                          'created_at',
-                          descending: false,
-                        ) // Changed to created_at
                         .snapshots(),
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
@@ -407,8 +1204,40 @@ class ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
                     );
                   }
 
-                  return ListView.builder(
+                  // Sort slides by position, fallback to created_at if position is missing
+                  slides.sort((a, b) {
+                    final aData = a.data() as Map<String, dynamic>;
+                    final bData = b.data() as Map<String, dynamic>;
+                    
+                    final aPosition = aData['position'] as int?;
+                    final bPosition = bData['position'] as int?;
+                    
+                    // If both have position, sort by position
+                    if (aPosition != null && bPosition != null) {
+                      return aPosition.compareTo(bPosition);
+                    }
+                    
+                    // If only one has position, prioritize the one with position
+                    if (aPosition != null) return -1;
+                    if (bPosition != null) return 1;
+                    
+                    // If neither has position, sort by created_at
+                    final aCreatedAt = aData['created_at'] as Timestamp?;
+                    final bCreatedAt = bData['created_at'] as Timestamp?;
+                    
+                    if (aCreatedAt != null && bCreatedAt != null) {
+                      return aCreatedAt.compareTo(bCreatedAt);
+                    }
+                    
+                    return 0;
+                  });
+
+                  // Ensure all slides have positions (run migration if needed)
+                  _ensureAllSlidesHavePositions(slides);
+
+                  return ReorderableListView.builder(
                     itemCount: slides.length,
+                    onReorder: _reorderSlides,
                     itemBuilder: (context, index) {
                       final slide = slides[index];
                       final documentId = slide.id;
@@ -441,6 +1270,7 @@ class ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
                               .isNotEmpty;
 
                       return Card(
+                        key: ValueKey(documentId),
                         margin: const EdgeInsets.symmetric(vertical: 8),
                         color: theme.cardTheme.color,
                         child: Padding(
@@ -452,9 +1282,22 @@ class ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
                                 mainAxisAlignment:
                                     MainAxisAlignment.spaceBetween,
                                 children: [
+                                  Row(
+                                    children: [
+                                      // Drag handle
+                                      Container(
+                                        margin: const EdgeInsets.only(right: 12),
+                                        child: Icon(
+                                          Icons.drag_handle,
+                                          color: Colors.grey.shade400,
+                                          size: 20,
+                                        ),
+                                      ),
                                   Text(
                                     'Slide ${index + 1}',
                                     style: theme.textTheme.titleMedium,
+                                      ),
+                                    ],
                                   ),
                                   Row(
                                     children: [
@@ -501,13 +1344,31 @@ class ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
                                             TextField(
                                               controller:
                                                   _textControllers[documentId],
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 16,
+                                              ),
                                               decoration: InputDecoration(
                                                 labelText:
                                                     'Enter announcement text',
-                                                labelStyle:
-                                                    theme.textTheme.bodyMedium,
-                                                border:
-                                                    const OutlineInputBorder(),
+                                                labelStyle: TextStyle(
+                                                  color: Colors.grey.shade300,
+                                                  fontSize: 16,
+                                                ),
+                                                border: OutlineInputBorder(
+                                                  borderRadius: BorderRadius.circular(12),
+                                                  borderSide: BorderSide(color: Colors.grey.shade600),
+                                                ),
+                                                enabledBorder: OutlineInputBorder(
+                                                  borderRadius: BorderRadius.circular(12),
+                                                  borderSide: BorderSide(color: Colors.grey.shade600),
+                                                ),
+                                                focusedBorder: OutlineInputBorder(
+                                                  borderRadius: BorderRadius.circular(12),
+                                                  borderSide: BorderSide(color: Colors.blue.shade400, width: 2),
+                                                ),
+                                                filled: true,
+                                                fillColor: Colors.grey.shade800,
                                                 enabled: !isSavingThisSlide,
                                               ),
                                               maxLines: null,
@@ -674,11 +1535,9 @@ class ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
                                           ),
                                         ),
                                       if (slideText.isNotEmpty)
-                                        Text(
+                                        _buildClickableText(
                                           slideText,
-                                          style: theme.textTheme.bodyMedium,
-                                          maxLines: 5,
-                                          overflow: TextOverflow.ellipsis,
+                                          theme.textTheme.bodyMedium,
                                         )
                                       else if (slideImageUrl == null ||
                                           slideImageUrl.isEmpty)
@@ -702,20 +1561,43 @@ class ManageAnnouncementsPageState extends State<ManageAnnouncementsPage> {
               ),
             ),
             const SizedBox(height: 16),
-            Center(
-              child: ElevatedButton(
-                onPressed: _addSlide,
-                style: ElevatedButton.styleFrom(
-                  foregroundColor: theme.iconTheme.color,
-                  backgroundColor: theme.primaryColor,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 40,
-                    vertical: 15,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                ElevatedButton(
+                  onPressed: _addSlide,
+                  style: ElevatedButton.styleFrom(
+                    foregroundColor: theme.iconTheme.color,
+                    backgroundColor: theme.primaryColor,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 40,
+                      vertical: 15,
+                    ),
+                    textStyle: const TextStyle(fontSize: 18),
                   ),
-                  textStyle: const TextStyle(fontSize: 18),
+                  child: const Text('Add New Slide'),
                 ),
-                child: const Text('Add New Slide'),
-              ),
+                if (!_positionsFixed) ...[
+                  const SizedBox(width: 16),
+                  OutlinedButton(
+                    onPressed: () async {
+                      await _migrateExistingSlides();
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Position migration completed!')),
+                        );
+                      }
+                    },
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 15,
+                      ),
+                    ),
+                    child: const Text('Fix Positions'),
+                  ),
+                ],
+              ],
             ),
           ],
         ),

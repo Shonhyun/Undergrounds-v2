@@ -6,8 +6,13 @@ import 'package:intl/intl.dart';
 
 class ProgramSelectScreen extends StatefulWidget {
   final VoidCallback onBack;
+  final Map<String, dynamic>? userData; // Add userData parameter
 
-  const ProgramSelectScreen({super.key, required this.onBack});
+  const ProgramSelectScreen({
+    super.key, 
+    required this.onBack,
+    this.userData, // Add userData parameter
+  });
 
   @override
   PaymentsScreenState createState() => PaymentsScreenState();
@@ -201,6 +206,7 @@ class PaymentsScreenState extends State<ProgramSelectScreen> {
                                       Navigator.pop(context);
                                     },
                                     selectedPrograms: existingProgramsList,
+                                    userData: widget.userData, // Pass userData
                                   ),
                             ),
                           );

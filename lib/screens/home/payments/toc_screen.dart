@@ -6,11 +6,13 @@ import 'package:learningexamapp/utils/common_widgets/app_bar.dart';
 class TermsAndConditionsScreen extends StatefulWidget {
   final VoidCallback onBack;
   final List<Map<String, dynamic>> selectedPrograms;
+  final Map<String, dynamic>? userData; // Add userData parameter
 
   const TermsAndConditionsScreen({
     super.key,
     required this.onBack,
     required this.selectedPrograms,
+    this.userData, // Add userData parameter
   });
 
   @override
@@ -194,6 +196,7 @@ class TermsAndConditionsScreenState extends State<TermsAndConditionsScreen> {
                                               },
                                               selectedPrograms:
                                                   widget.selectedPrograms,
+                                              userData: widget.userData, // Pass userData
                                             ),
                                       ),
                                     );
